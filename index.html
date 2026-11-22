@@ -1,0 +1,364 @@
+```html
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Escapa de la Pala 3D</title>
+    <!-- Tailwind CSS para la interfaz de usuario -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js para el motor gráfico 3D -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Tone.js para efectos de sonido sintetizados sin archivos externos -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <!-- Fuente estilo terror/arcade -->
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:ital,wght@0,600;0,700;1,700&family=Creepster&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050505;
+            font-family: 'Chakra Petch', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+
+        #game-canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .horror-title {
+            font-family: 'Creepster', cursive;
+            letter-spacing: 3px;
+            text-shadow: 0 0 15px rgba(239, 68, 68, 0.8), 0 4px 10px rgba(0, 0, 0, 0.9);
+        }
+
+        /* Efecto de viñeta roja cuando la pala está cerca */
+        #danger-vignette {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background: radial-gradient(circle, transparent 50%, rgba(220, 38, 38, 0.75) 100%);
+            opacity: 0;
+            transition: opacity 0.2s ease-out;
+            z-index: 10;
+        }
+
+        /* Botones estilo arcade 3D */
+        .btn-arcade {
+            background: linear-gradient(180deg, #ef4444 0%, #991b1b 100%);
+            box-shadow: 0 6px 0 #450a0a, 0 10px 20px rgba(0, 0, 0, 0.6);
+            transition: transform 0.1s, box-shadow 0.1s;
+        }
+        .btn-arcade:active {
+            transform: translateY(4px);
+            box-shadow: 0 2px 0 #450a0a, 0 4px 10px rgba(0, 0, 0, 0.6);
+        }
+
+        .control-btn {
+            background: rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(6px);
+            border: 2px solid rgba(255, 255, 255, 0.25);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+        }
+        .control-btn:active {
+            background: rgba(239, 68, 68, 0.4);
+            border-color: #ef4444;
+            transform: scale(0.95);
+        }
+
+        /* Animación de vibración intensa para el Jumpscare de llamada */
+        @keyframes phoneRingShake {
+            0%, 100% { transform: translate(0, 0) rotate(0deg) scale(1); }
+            15% { transform: translate(-8px, -6px) rotate(-2deg) scale(1.03); }
+            30% { transform: translate(8px, 5px) rotate(2deg) scale(1.03); }
+            45% { transform: translate(-6px, 6px) rotate(-1.5deg) scale(1.02); }
+            60% { transform: translate(7px, -5px) rotate(1.5deg) scale(1.02); }
+            75% { transform: translate(-5px, -3px) rotate(-1deg) scale(1.01); }
+        }
+        .jumpscare-shake {
+            animation: phoneRingShake 0.45s cubic-bezier(.36,.07,.19,.97) both;
+        }
+    </style>
+</head>
+<body class="text-white">
+
+    <!-- Viñeta de peligro -->
+    <div id="danger-vignette"></div>
+
+    <!-- Contenedor del Canvas 3D -->
+    <canvas id="game-canvas"></canvas>
+
+    <!-- HUD (Interfaz durante el juego) -->
+    <div id="hud" class="hidden fixed inset-0 pointer-events-none z-20 flex flex-col justify-between p-4 sm:p-6">
+        <!-- Barra superior: Distancia, Energía y Proximidad de la Pala -->
+        <div class="flex flex-wrap justify-between items-start gap-4 max-w-4xl mx-auto w-full">
+            <!-- Distancia recorrida -->
+            <div class="bg-black/70 border border-zinc-700/80 backdrop-blur-md px-4 py-2 rounded-xl shadow-lg">
+                <div class="text-xs text-zinc-400 uppercase tracking-wider">Distancia</div>
+                <div class="text-2xl sm:text-3xl font-bold text-amber-400"><span id="score-display">0</span> m</div>
+            </div>
+
+            <!-- Medidor de proximidad de la pala -->
+            <div class="bg-black/70 border border-red-900/80 backdrop-blur-md px-4 py-2 rounded-xl shadow-lg flex-1 max-w-xs mx-auto">
+                <div class="flex justify-between text-xs uppercase tracking-wider mb-1">
+                    <span class="text-red-400 font-bold flex items-center gap-1">
+                        <!-- Icono SVG de Pala -->
+                        <svg class="w-4 h-4 inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 4l6 6m-3-3L7 17l-4 4 4-4 10-10z"/>
+                            <path d="M2 22l5-5"/>
+                        </svg>
+                        Peligro Pala
+                    </span>
+                    <span id="distance-enemy-text" class="text-zinc-300">Lejos</span>
+                </div>
+                <div class="w-full h-3 bg-zinc-800 rounded-full overflow-hidden border border-zinc-700">
+                    <div id="danger-bar" class="h-full bg-gradient-to-r from-amber-500 to-red-600 transition-all duration-150" style="width: 30%;"></div>
+                </div>
+            </div>
+
+            <!-- Barra de Estamina / Sprint -->
+            <div class="bg-black/70 border border-zinc-700/80 backdrop-blur-md px-4 py-2 rounded-xl shadow-lg">
+                <div class="flex justify-between text-xs text-cyan-400 uppercase tracking-wider mb-1">
+                    <span>Energía (Sprint)</span>
+                </div>
+                <div class="w-28 sm:w-36 h-3 bg-zinc-800 rounded-full overflow-hidden border border-zinc-700">
+                    <div id="stamina-bar" class="h-full bg-cyan-400 transition-all duration-75" style="width: 100%;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controles Táctiles / Botones inferiores para Móvil y Escritorio -->
+        <div class="pointer-events-auto max-w-xl mx-auto w-full flex justify-between items-end pb-2 sm:pb-4 gap-2">
+            <!-- Izquierda / Derecha -->
+            <div class="flex gap-3">
+                <button id="btn-left" class="control-btn w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex items-center justify-center text-white" aria-label="Izquierda">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+                    </svg>
+                </button>
+                <button id="btn-right" class="control-btn w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex items-center justify-center text-white" aria-label="Derecha">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Saltar y Correr (Sprint) -->
+            <div class="flex gap-3">
+                <button id="btn-sprint" class="control-btn px-4 h-16 sm:h-20 rounded-2xl flex flex-col items-center justify-center text-cyan-300 font-bold text-xs sm:text-sm">
+                    <svg class="w-6 h-6 mb-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                    </svg>
+                    CORRER
+                </button>
+                <button id="btn-jump" class="control-btn w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex flex-col items-center justify-center text-amber-300 font-bold text-xs sm:text-sm" aria-label="Saltar">
+                    <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/>
+                    </svg>
+                    SALTAR
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pantalla de Inicio -->
+    <div id="start-screen" class="fixed inset-0 z-30 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4">
+        <div class="max-w-md w-full bg-zinc-900/95 border-2 border-red-900/60 rounded-3xl p-6 sm:p-8 text-center shadow-2xl">
+            <div class="inline-flex items-center justify-center w-20 h-20 rounded-full bg-red-950/80 border border-red-600/50 mb-4 shadow-inner">
+                <!-- Ilustración SVG de Pala -->
+                <svg class="w-12 h-12 text-red-500 transform -rotate-45" viewBox="0 0 64 64" fill="currentColor">
+                    <rect x="29" y="4" width="6" height="34" rx="2" fill="#d97706"/>
+                    <path d="M24 2h16v6H24z" fill="#b45309"/>
+                    <path d="M20 36h24v14c0 8-12 12-12 12s-12-4-12-12V36z" fill="#9ca3af"/>
+                    <path d="M24 38h16v10c0 5-8 8-8 8s-8-3-8-8V38z" fill="#6b7280"/>
+                </svg>
+            </div>
+
+            <h1 class="horror-title text-4xl sm:text-5xl text-red-500 mb-2">ESCAPA DE LA PALA</h1>
+            <p class="text-zinc-300 text-sm sm:text-base mb-6">
+                ¡No dejes que te ponga a trabajar! Corre por el pasillo oscuro, esquiva las cajas, salta las barreras y recoge bebidas energéticas.
+            </p>
+
+            <!-- Instrucciones -->
+            <div class="bg-black/60 rounded-2xl p-4 mb-6 text-left text-xs sm:text-sm space-y-2 border border-zinc-800">
+                <div class="flex items-center gap-2 text-zinc-300">
+                    <span class="px-2 py-0.5 bg-zinc-800 rounded text-amber-400 font-bold">A / D</span> o <span class="px-2 py-0.5 bg-zinc-800 rounded text-amber-400 font-bold">◀ / ▶</span> : Cambiar de carril
+                </div>
+                <div class="flex items-center gap-2 text-zinc-300">
+                    <span class="px-2 py-0.5 bg-zinc-800 rounded text-amber-400 font-bold">W / ESPACIO</span> : Saltar obstáculos
+                </div>
+                <div class="flex items-center gap-2 text-zinc-300">
+                    <span class="px-2 py-0.5 bg-zinc-800 rounded text-cyan-400 font-bold">SHIFT</span> : Acelerar (gasta energía)
+                </div>
+                <div class="text-zinc-400 italic pt-1">
+                    * En móvil también puedes deslizar el dedo (swipe) o usar los botones en pantalla.
+                </div>
+            </div>
+
+            <button id="start-btn" class="btn-arcade w-full py-4 rounded-2xl font-bold text-lg sm:text-xl tracking-wider uppercase text-white cursor-pointer">
+                ¡CORRER POR MI VIDA!
+            </button>
+        </div>
+    </div>
+
+    <!-- Pantalla de Jumpscare / Game Over (Llamada de Solicitud de Empleo) -->
+    <div id="gameover-screen" class="hidden fixed inset-0 z-40 flex flex-col justify-between items-center bg-[#0b141a] p-6 sm:p-8 select-none overflow-y-auto"
+         style="background-image: radial-gradient(circle at center, #16222a 0%, #090e11 100%);">
+        
+        <!-- Encabezado estilo llamada entrante de WhatsApp -->
+        <div class="text-center mt-2 sm:mt-4">
+            <h2 class="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-2">Solicitud De Empleo</h2>
+            <div class="inline-block w-44 h-4 bg-zinc-700/70 rounded-full"></div>
+        </div>
+
+        <!-- Foto de perfil circular con formulario de solicitud de empleo (SVG nítido) -->
+        <div class="my-4 flex flex-col items-center">
+            <div class="w-44 h-44 sm:w-52 sm:h-52 rounded-full bg-white p-2 shadow-[0_0_50px_rgba(239,68,68,0.65)] border-4 border-zinc-800 overflow-hidden flex items-center justify-center">
+                <svg viewBox="0 0 200 200" class="w-full h-full">
+                    <!-- Fondo hoja blanca -->
+                    <rect width="200" height="200" fill="#ffffff"/>
+                    <!-- Cabecera azul -->
+                    <rect x="10" y="8" width="180" height="14" fill="#0284c7"/>
+                    <text x="100" y="18" font-size="8" font-weight="bold" fill="#ffffff" text-anchor="middle" font-family="sans-serif">SOLICITUD DE EMPLEO</text>
+                    <!-- Cuadrícula del formulario -->
+                    <g stroke="#334155" stroke-width="1.2" fill="none">
+                        <rect x="10" y="25" width="180" height="165"/>
+                        <line x1="10" y1="40" x2="190" y2="40"/>
+                        <line x1="10" y1="55" x2="190" y2="55"/>
+                        <line x1="10" y1="70" x2="190" y2="70"/>
+                        <line x1="10" y1="90" x2="190" y2="90"/>
+                        <line x1="10" y1="115" x2="190" y2="115"/>
+                        <line x1="10" y1="140" x2="190" y2="140"/>
+                        <line x1="10" y1="165" x2="190" y2="165"/>
+                        <!-- Divisiones verticales -->
+                        <line x1="70" y1="25" x2="70" y2="70"/>
+                        <line x1="130" y1="25" x2="130" y2="70"/>
+                        <line x1="115" y1="90" x2="115" y2="140"/>
+                        <line x1="55" y1="140" x2="55" y2="190"/>
+                        <line x1="105" y1="140" x2="105" y2="190"/>
+                        <line x1="150" y1="140" x2="150" y2="190"/>
+                    </g>
+                    <!-- Textos simulados del formulario -->
+                    <g fill="#1e293b" font-size="5" font-family="sans-serif" font-weight="bold">
+                        <text x="14" y="34">APELLIDO PATERNO</text>
+                        <text x="74" y="34">APELLIDO MATERNO</text>
+                        <text x="134" y="34">NOMBRE(S)</text>
+                        <text x="14" y="49">DOMICILIO</text>
+                        <text x="74" y="49">COLONIA</text>
+                        <text x="134" y="49">TELÉFONO</text>
+                        <text x="14" y="64">PUESTO SOLICITADO</text>
+                        <text x="134" y="64">SUELDO DESEADO</text>
+                        <text x="14" y="81">DOCUMENTACIÓN Y DATOS GENERALES</text>
+                        <rect x="14" y="95" width="95" height="16" fill="#e2e8f0"/>
+                        <text x="119" y="101">DISPONIBILIDAD DE HORARIO</text>
+                        <text x="119" y="110">Lunes a Domingo [X]</text>
+                        <text x="14" y="128">HISTORIAL LABORAL Y REFERENCIAS</text>
+                        <text x="14" y="152">EMPRESA</text>
+                        <text x="60" y="152">PUESTO</text>
+                        <text x="110" y="152">MOTIVO SALIDA</text>
+                        <text x="154" y="152">FIRMA</text>
+                    </g>
+                </svg>
+            </div>
+
+            <!-- Mensaje terrorífico personalizado -->
+            <div class="mt-5 max-w-md bg-red-950/85 border-2 border-red-600 rounded-2xl px-5 py-3 text-center shadow-xl">
+                <p class="text-lg sm:text-xl font-bold text-red-200 leading-snug">
+                    "Te agarro la pala, ahora tendras que laburar toda la vida."
+                </p>
+                <div class="mt-2 flex justify-center gap-4 text-xs sm:text-sm text-zinc-300 border-t border-red-800/60 pt-2">
+                    <span>Distancia: <strong id="final-score" class="text-amber-400">0</strong> m</span>
+                    <span>•</span>
+                    <span>Récord: <strong id="best-score" class="text-emerald-400">0</strong> m</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Botones inferiores estilo llamada (Rechazar / Aceptar para reintentar) -->
+        <div class="w-full max-w-sm flex justify-between items-center px-4 pb-2">
+            <!-- Botón Rechazar (Reiniciar) -->
+            <button id="reject-btn" class="flex flex-col items-center gap-2 group cursor-pointer">
+                <div class="w-16 h-16 rounded-full bg-red-600 group-hover:bg-red-500 flex items-center justify-center shadow-lg transition-transform group-active:scale-90">
+                    <svg class="w-8 h-8 text-white transform rotate-[135deg]" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M6.62 10.79a15.053 15.053 0 006.59 6.59l2.2-2.2a1 1 0 011.01-.24c1.12.37 2.33.57 3.58.57a1 1 0 011 1V20a1 1 0 01-1 1C10.07 21 3 13.93 3 5a1 1 0 011-1h3.5a1 1 0 011 1c0 1.25.2 2.46.57 3.58a1 1 0 01-.25 1.01l-2.2 2.2z"/>
+                    </svg>
+                </div>
+                <span class="text-xs text-zinc-300 font-medium">Rechazar</span>
+            </button>
+
+            <!-- Botón Central Verde (Desliza / Pulsa para volver a correr) -->
+            <button id="restart-btn" class="flex flex-col items-center gap-2 group cursor-pointer">
+                <span class="text-zinc-400 text-xs animate-bounce">⌃</span>
+                <div class="w-16 h-16 rounded-full bg-emerald-500 group-hover:bg-emerald-400 flex items-center justify-center shadow-[0_0_25px_rgba(16,185,129,0.6)] transition-transform group-active:scale-90 animate-pulse">
+                    <svg class="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M6.62 10.79a15.053 15.053 0 006.59 6.59l2.2-2.2a1 1 0 011.01-.24c1.12.37 2.33.57 3.58.57a1 1 0 011 1V20a1 1 0 01-1 1C10.07 21 3 13.93 3 5a1 1 0 011-1h3.5a1 1 0 011 1c0 1.25.2 2.46.57 3.58a1 1 0 01-.25 1.01l-2.2 2.2z"/>
+                    </svg>
+                </div>
+                <span class="text-xs text-zinc-200 font-semibold text-center leading-tight">Reintentar<br>escape</span>
+            </button>
+
+            <!-- Botón Mensaje (También reinicia) -->
+            <button id="msg-btn" class="flex flex-col items-center gap-2 group cursor-pointer">
+                <div class="w-16 h-16 rounded-full bg-zinc-800 group-hover:bg-zinc-700 flex items-center justify-center shadow-lg transition-transform group-active:scale-90">
+                    <svg class="w-7 h-7 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-3 11H7v-2h10v2zm0-3H7V8h10v2z"/>
+                    </svg>
+                </div>
+                <span class="text-xs text-zinc-300 font-medium">Mensaje</span>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * ESCAPA DE LA PALA 3D
+         * Motor 3D con Three.js, efectos de sonido con Tone.js,
+         * física de carriles, salto, sprint, cámara dinámica y persecución.
+         */
+
+        // --- VARIABLES GLOBALES Y ESTADO DEL JUEGO ---
+        let scene, camera, renderer;
+        let playerGroup, shovelGroup, shovelPivot;
+        let corridorSegments = [];
+        let obstacles = [];
+        let pickups = [];
+        let corridorLights = [];
+
+        // Nuevas variables para proyectiles lanzados por la pala y advertencia roja
+        let thrownObjects = [];
+        let laneWarningMeshes = [];
+        let throwState = 'IDLE'; // 'IDLE' | 'WARNING'
+        let throwTimer = 3.5;
+        let warningTimer = 0;
+        let targetThrowLane = 1;
+
+        // Estado del juego
+        const GAME_STATE = {
+            MENU: 0,
+            PLAYING: 1,
+            GAMEOVER: 2
+        };
+        let currentState = GAME_STATE.MENU;
+
+        // Parámetros de jugabilidad
+        const LANES = [-2.4, 0, 2.4]; // Tres carriles en el eje X
+        let currentLane = 1; // 0: Izquierda, 1: Centro, 2: Derecha
+        let targetX = 0;
+
+        // Física vertical (Salto)
+        let playerY = 0;
+        let velocityY = 0;
+        const GRAVITY = -38;
+        const JUMP_FORCE = 14.5;
+        let isGrounded = true;
+
+        // Velocidad y persecución
+        let baseSpeed = 18;
+        let currentSpeed = 18;
+        let distanceTraveled = 0;
+        let bestDistance = localStorag
