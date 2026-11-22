@@ -1,0 +1,55 @@
+name: Crear APK y AAB
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Preparar archivos del juego
+        run: |
+          mkdir -p www
+          cp index.html www/index.html
+
+      - name: Instalar Capacitor
+        run: |
+          npm init -y
+          npm install @capacitor/core@7 @capacitor/android@7
+          npm install --save-dev @capacitor/cli@7
+
+      - name: Configurar aplicación
+        run: |
+          echo '{"appId":"com.escapadelapala.game","appName":"Escapa de la Pala 3D","webDir":"www"}' > capacitor.config.json
+          npx cap add android
+          npx cap sync android
+
+      - name: Crear APK y AAB
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug bundleDebug
+
+      - name: Guardar archivos
+        uses: actions/upload-artifact@v4
+        with:
+          name: Escapa-de-la-Pala-3D
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/bundle/debug/app-debug.aab
+            
